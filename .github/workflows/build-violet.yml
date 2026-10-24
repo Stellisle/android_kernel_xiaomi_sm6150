@@ -29,30 +29,20 @@ jobs:
       - name: Build kernel
         working-directory: kernel
         run: |
+          # 1. 修复 trace_event_perf.c 重复声明
           if [ "$(sed -n '431p' kernel/trace/trace_event_perf.c)" = "$(sed -n '433p' kernel/trace/trace_event_perf.c)" ]; then
             sed -i '433d' kernel/trace/trace_event_perf.c
             echo "已删除重复的 event 声明"
           else
-            echo "431 和 433 行不一致，手动检查"
+            echo "431 和 433 行不一致"
             exit 1
           fi
 
-          if grep -q "sysctl_sched_conservative_pl" kernel/sched/fair.c; then
-            echo "WALT sysctl 变量已存在"
-          else
+          # 2. 补 WALT 缺失的 sysctl 变量定义
+          if ! grep -q "sysctl_sched_conservative_pl" kernel/sched/fair.c; then
             sed -i 's|^    (10 \* NSEC_PER_MSEC);$|    (10 * NSEC_PER_MSEC);\nunsigned int sysctl_sched_conservative_pl = 1;\nunsigned int sysctl_sched_many_wakeup_threshold = 8;|' kernel/sched/fair.c
           fi
           grep -n "sysctl_sched_conservative_pl" kernel/sched/fair.c || exit 1
-
-          # 给 violet 补主 dtb 编译规则
-          MAKEFILE=arch/arm64/boot/dts/qcom/Makefile
-          if grep -q "dtb-.*MACH_XIAOMI_VIOLET.*violet-sm6150.dtb" $MAKEFILE; then
-            echo "主 dtb 规则已存在"
-          else
-            sed -i '/^dtbo-\$(CONFIG_MACH_XIAOMI_VIOLET) += violet-sm6150-overlay.dtbo$/i dtb-$(CONFIG_MACH_XIAOMI_VIOLET) += violet-sm6150.dtb' $MAKEFILE
-            echo "已插入主 dtb 规则"
-          fi
-          grep -n "violet-sm6150" $MAKEFILE | head -10
 
           export PATH=$HOME/clang/bin:$PATH
           export ARCH=arm64
@@ -71,32 +61,45 @@ jobs:
           make O=out vendor/sdmsteppe_defconfig
           scripts/kconfig/merge_config.sh -O out out/.config \
             arch/arm64/configs/vendor/violet.config
+
+          # 3. 关键配置
           scripts/config --file out/.config \
+            --set-str LOCALVERSION "-perf-ge03e5ba22586" \
+            --disable LOCALVERSION_AUTO \
+            --enable MACH_XIAOMI \
+            --enable BUILD_ARM64_DT_OVERLAY \
             --enable MACH_XIAOMI_VIOLET \
             --enable ANDROID_VENDOR_HOOKS \
-            --enable PID_NS --enable USER_NS --enable KPROBES \
+            --enable PID_NS \
+            --enable USER_NS \
+            --enable KPROBES \
+            --enable KPROBE_EVENTS \
             --disable EFI \
             --disable EFI_STUB \
             --disable FAULT_INJECTION \
             --disable FAULT_INJECTION_DEBUG_FS \
             --disable FAILSLAB \
             --disable FAIL_PAGE_ALLOC
-          make O=out olddefconfig
-          grep -E "MACH_XIAOMI_VIOLET|ANDROID_VENDOR_HOOKS|PID_NS|USER_NS|KPROBES|SCHED_WALT" out/.config
 
-          make O=out -j$(nproc) KCFLAGS="-Wno-error" Image.gz dtbs
+          make O=out olddefconfig
+
+          echo "===== 关键配置确认 ====="
+          grep -E "LOCALVERSION|MACH_XIAOMI|BUILD_ARM64_DT_OVERLAY|ANDROID_VENDOR_HOOKS|PID_NS|USER_NS|KPROBES|SCHED_WALT|EFI" out/.config
+
+          echo "===== 开始编译内核 ====="
+          make O=out -j$(nproc) KCFLAGS="-Wno-error" Image.gz
+
+          echo "===== 版本字符串确认 ====="
+          strings out/arch/arm64/boot/Image.gz | grep -m1 "Linux version"
 
       - name: Collect artifacts
         run: |
           set -e
           mkdir -p output
           cp kernel/out/arch/arm64/boot/Image.gz output/
-          echo "===== 所有 violet 相关产物 ====="
-          find kernel/out/arch/arm64/boot/dts -name '*violet*' -exec ls -lh {} \;
-          find kernel/out/arch/arm64/boot/dts -name 'violet-sm6150.dtb' -exec cp {} output/ \;
-          find kernel/out/arch/arm64/boot/dts -name 'violet-sm6150-overlay.dtbo' -exec cp {} output/ \;
-          echo "===== output 内容 ====="
           ls -lh output/
+          echo "===== 内核版本 ====="
+          strings output/Image.gz | grep -m1 "Linux version"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
