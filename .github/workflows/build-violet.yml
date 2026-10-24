@@ -29,26 +29,22 @@ jobs:
       - name: Build kernel
         working-directory: kernel
         run: |
-          # 修上游补丁打重的重复声明
           if [ "$(sed -n '431p' kernel/trace/trace_event_perf.c)" = "$(sed -n '433p' kernel/trace/trace_event_perf.c)" ]; then
             sed -i '433d' kernel/trace/trace_event_perf.c
             echo "已删除重复的 event 声明"
           else
-            echo "431 和 433 行不一致，手动检查："
+            echo "431 和 433 行不一致，手动检查"
             sed -n '425,440p' kernel/trace/trace_event_perf.c
             exit 1
           fi
 
-          # 补 WALT 缺失的 sysctl 变量定义
           if grep -q "sysctl_sched_conservative_pl" kernel/sched/fair.c; then
-            echo "WALT sysctl 变量已存在，跳过"
+            echo "WALT sysctl 变量已存在"
           else
-            sed -i '/^    (10 \* NSEC_PER_MSEC);$/a\
-unsigned int sysctl_sched_conservative_pl = 1;\
-unsigned int sysctl_sched_many_wakeup_threshold = 8;' kernel/sched/fair.c
+            sed -i 's|^    (10 \* NSEC_PER_MSEC);$|    (10 * NSEC_PER_MSEC);\nunsigned int sysctl_sched_conservative_pl = 1;\nunsigned int sysctl_sched_many_wakeup_threshold = 8;|' kernel/sched/fair.c
             echo "已插入 WALT sysctl 变量定义"
           fi
-          grep -n "sysctl_sched_conservative_pl\|sysctl_sched_many_wakeup_threshold" kernel/sched/fair.c
+          grep -n "sysctl_sched_conservative_pl\|sysctl_sched_many_wakeup_threshold" kernel/sched/fair.c || { echo "WALT sysctl 变量插入失败"; exit 1; }
 
           export PATH=$HOME/clang/bin:$PATH
           export ARCH=arm64
