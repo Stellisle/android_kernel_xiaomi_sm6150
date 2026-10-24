@@ -1,0 +1,84 @@
+name: Build Violet Kernel (sm6150)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Stellisle/android_kernel_xiaomi_sm6150
+          ref: lineage-23.2
+          path: kernel
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bc bison build-essential flex libssl-dev \
+            libncurses5-dev zip libelf-dev dwarves git gcc-aarch64-linux-gnu
+
+      - name: Download LineageOS Clang r383902
+        run: |
+          git clone --depth=1 \
+            https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r383902.git \
+            $HOME/clang
+          $HOME/clang/bin/clang --version
+
+      - name: Build kernel
+        working-directory: kernel
+        run: |
+          export PATH=$HOME/clang/bin:$PATH
+          export ARCH=arm64
+          export LLVM=1
+          export CC=clang
+          export LD=ld.lld
+          export AR=llvm-ar
+          export NM=llvm-nm
+          export OBJCOPY=llvm-objcopy
+          export OBJDUMP=llvm-objdump
+          export STRIP=llvm-strip
+          export CLANG_TRIPLE=aarch64-linux-gnu-
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+
+          make O=out vendor/sdmsteppe_defconfig
+          scripts/kconfig/merge_config.sh -O out out/.config \
+            arch/arm64/configs/vendor/violet.config
+          scripts/config --file out/.config \
+            --enable MACH_XIAOMI_VIOLET \
+            --enable ANDROID_VENDOR_HOOKS \
+            --enable PID_NS --enable USER_NS --enable KPROBES \
+            --disable FAULT_INJECTION \
+            --disable FAULT_INJECTION_DEBUG_FS \
+            --disable FAILSLAB \
+            --disable FAIL_PAGE_ALLOC
+          make O=out olddefconfig
+          grep -E "MACH_XIAOMI_VIOLET|ANDROID_VENDOR_HOOKS|PID_NS|USER_NS|KPROBES" out/.config
+
+          make O=out -j$(nproc) KCFLAGS="-Wno-error" Image.gz dtbs
+
+          # 主 dtb 没有显式规则，直接按路径编
+          make O=out -j$(nproc) KCFLAGS="-Wno-error" \
+            arch/arm64/boot/dts/qcom/violet-sm6150.dtb || \
+            echo "主 dtb 直接编译失败，稍后检查"
+
+      - name: Collect artifacts
+        run: |
+          set -e
+          mkdir -p output
+          cp kernel/out/arch/arm64/boot/Image.gz output/
+          find kernel/out/arch/arm64/boot/dts -name 'violet-sm6150.dtb' -exec cp {} output/ \; || true
+          find kernel/out/arch/arm64/boot/dts -name 'violet-sm6150-overlay.dtbo' -exec cp {} output/ \; || true
+          echo "===== output 内容 ====="
+          ls -lh output/
+          echo "===== 所有 violet 相关产物 ====="
+          find kernel/out/arch/arm64/boot/dts -name '*violet*' -exec ls -lh {} \;
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: violet-kernel
+          path: output/
+          if-no-files-found: error
