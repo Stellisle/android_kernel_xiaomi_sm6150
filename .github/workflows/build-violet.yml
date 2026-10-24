@@ -19,14 +19,11 @@ jobs:
           sudo apt-get install -y bc bison build-essential flex libssl-dev \
             libncurses5-dev zip libelf-dev dwarves git gcc-aarch64-linux-gnu
 
-      - name: Download AOSP Clang r383902
+      - name: Download Clang r383902 (GitHub mirror)
         run: |
-          git clone --depth=1 --filter=blob:none --sparse \
-            https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 \
-            $HOME/clang-repo
-          cd $HOME/clang-repo
-          git sparse-checkout set clang-r383902
-          mv clang-r383902 $HOME/clang
+          git clone --depth=1 \
+            https://github.com/picasso09/clang-11.0.1-r383902.git \
+            $HOME/clang
           $HOME/clang/bin/clang --version
 
       - name: Build kernel
