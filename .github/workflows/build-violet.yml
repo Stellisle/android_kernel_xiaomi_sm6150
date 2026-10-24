@@ -39,6 +39,17 @@ jobs:
             exit 1
           fi
 
+          # 补 WALT 缺失的 sysctl 变量定义
+          if grep -q "sysctl_sched_conservative_pl" kernel/sched/fair.c; then
+            echo "WALT sysctl 变量已存在，跳过"
+          else
+            sed -i '/^    (10 \* NSEC_PER_MSEC);$/a\
+unsigned int sysctl_sched_conservative_pl = 1;\
+unsigned int sysctl_sched_many_wakeup_threshold = 8;' kernel/sched/fair.c
+            echo "已插入 WALT sysctl 变量定义"
+          fi
+          grep -n "sysctl_sched_conservative_pl\|sysctl_sched_many_wakeup_threshold" kernel/sched/fair.c
+
           export PATH=$HOME/clang/bin:$PATH
           export ARCH=arm64
           export LLVM=1
@@ -60,12 +71,14 @@ jobs:
             --enable MACH_XIAOMI_VIOLET \
             --enable ANDROID_VENDOR_HOOKS \
             --enable PID_NS --enable USER_NS --enable KPROBES \
+            --disable EFI \
+            --disable EFI_STUB \
             --disable FAULT_INJECTION \
             --disable FAULT_INJECTION_DEBUG_FS \
             --disable FAILSLAB \
             --disable FAIL_PAGE_ALLOC
           make O=out olddefconfig
-          grep -E "MACH_XIAOMI_VIOLET|ANDROID_VENDOR_HOOKS|PID_NS|USER_NS|KPROBES" out/.config
+          grep -E "MACH_XIAOMI_VIOLET|ANDROID_VENDOR_HOOKS|PID_NS|USER_NS|KPROBES|SCHED_WALT" out/.config
 
           make O=out -j$(nproc) KCFLAGS="-Wno-error" Image.gz dtbs
           make O=out -j$(nproc) KCFLAGS="-Wno-error" \
