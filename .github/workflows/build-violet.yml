@@ -34,7 +34,6 @@ jobs:
             echo "已删除重复的 event 声明"
           else
             echo "431 和 433 行不一致，手动检查"
-            sed -n '425,440p' kernel/trace/trace_event_perf.c
             exit 1
           fi
 
@@ -42,9 +41,18 @@ jobs:
             echo "WALT sysctl 变量已存在"
           else
             sed -i 's|^    (10 \* NSEC_PER_MSEC);$|    (10 * NSEC_PER_MSEC);\nunsigned int sysctl_sched_conservative_pl = 1;\nunsigned int sysctl_sched_many_wakeup_threshold = 8;|' kernel/sched/fair.c
-            echo "已插入 WALT sysctl 变量定义"
           fi
-          grep -n "sysctl_sched_conservative_pl\|sysctl_sched_many_wakeup_threshold" kernel/sched/fair.c || { echo "WALT sysctl 变量插入失败"; exit 1; }
+          grep -n "sysctl_sched_conservative_pl" kernel/sched/fair.c || exit 1
+
+          # 给 violet 补主 dtb 编译规则
+          MAKEFILE=arch/arm64/boot/dts/qcom/Makefile
+          if grep -q "dtb-.*MACH_XIAOMI_VIOLET.*violet-sm6150.dtb" $MAKEFILE; then
+            echo "主 dtb 规则已存在"
+          else
+            sed -i '/^dtbo-\$(CONFIG_MACH_XIAOMI_VIOLET) += violet-sm6150-overlay.dtbo$/i dtb-$(CONFIG_MACH_XIAOMI_VIOLET) += violet-sm6150.dtb' $MAKEFILE
+            echo "已插入主 dtb 规则"
+          fi
+          grep -n "violet-sm6150" $MAKEFILE | head -10
 
           export PATH=$HOME/clang/bin:$PATH
           export ARCH=arm64
@@ -77,18 +85,18 @@ jobs:
           grep -E "MACH_XIAOMI_VIOLET|ANDROID_VENDOR_HOOKS|PID_NS|USER_NS|KPROBES|SCHED_WALT" out/.config
 
           make O=out -j$(nproc) KCFLAGS="-Wno-error" Image.gz dtbs
-          make O=out -j$(nproc) KCFLAGS="-Wno-error" \
-            arch/arm64/boot/dts/qcom/violet-sm6150.dtb || echo "主 dtb 直接编译失败"
 
       - name: Collect artifacts
         run: |
           set -e
           mkdir -p output
           cp kernel/out/arch/arm64/boot/Image.gz output/
-          find kernel/out/arch/arm64/boot/dts -name 'violet-sm6150.dtb' -exec cp {} output/ \; || true
-          find kernel/out/arch/arm64/boot/dts -name 'violet-sm6150-overlay.dtbo' -exec cp {} output/ \; || true
-          ls -lh output/
+          echo "===== 所有 violet 相关产物 ====="
           find kernel/out/arch/arm64/boot/dts -name '*violet*' -exec ls -lh {} \;
+          find kernel/out/arch/arm64/boot/dts -name 'violet-sm6150.dtb' -exec cp {} output/ \;
+          find kernel/out/arch/arm64/boot/dts -name 'violet-sm6150-overlay.dtbo' -exec cp {} output/ \;
+          echo "===== output 内容 ====="
+          ls -lh output/
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
