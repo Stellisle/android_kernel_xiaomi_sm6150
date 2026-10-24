@@ -29,6 +29,16 @@ jobs:
       - name: Build kernel
         working-directory: kernel
         run: |
+          # 修上游补丁打重的重复声明
+          if [ "$(sed -n '431p' kernel/trace/trace_event_perf.c)" = "$(sed -n '433p' kernel/trace/trace_event_perf.c)" ]; then
+            sed -i '433d' kernel/trace/trace_event_perf.c
+            echo "已删除重复的 event 声明"
+          else
+            echo "431 和 433 行不一致，手动检查："
+            sed -n '425,440p' kernel/trace/trace_event_perf.c
+            exit 1
+          fi
+
           export PATH=$HOME/clang/bin:$PATH
           export ARCH=arm64
           export LLVM=1
