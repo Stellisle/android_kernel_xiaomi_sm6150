@@ -19,11 +19,14 @@ jobs:
           sudo apt-get install -y bc bison build-essential flex libssl-dev \
             libncurses5-dev zip libelf-dev dwarves git gcc-aarch64-linux-gnu
 
-      - name: Download LineageOS Clang r383902
+      - name: Download AOSP Clang r383902
         run: |
-          git clone --depth=1 \
-            https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r383902.git \
-            $HOME/clang
+          git clone --depth=1 --filter=blob:none --sparse \
+            https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 \
+            $HOME/clang-repo
+          cd $HOME/clang-repo
+          git sparse-checkout set clang-r383902
+          mv clang-r383902 $HOME/clang
           $HOME/clang/bin/clang --version
 
       - name: Build kernel
@@ -58,11 +61,8 @@ jobs:
           grep -E "MACH_XIAOMI_VIOLET|ANDROID_VENDOR_HOOKS|PID_NS|USER_NS|KPROBES" out/.config
 
           make O=out -j$(nproc) KCFLAGS="-Wno-error" Image.gz dtbs
-
-          # 主 dtb 没有显式规则，直接按路径编
           make O=out -j$(nproc) KCFLAGS="-Wno-error" \
-            arch/arm64/boot/dts/qcom/violet-sm6150.dtb || \
-            echo "主 dtb 直接编译失败，稍后检查"
+            arch/arm64/boot/dts/qcom/violet-sm6150.dtb || echo "主 dtb 直接编译失败"
 
       - name: Collect artifacts
         run: |
@@ -71,9 +71,7 @@ jobs:
           cp kernel/out/arch/arm64/boot/Image.gz output/
           find kernel/out/arch/arm64/boot/dts -name 'violet-sm6150.dtb' -exec cp {} output/ \; || true
           find kernel/out/arch/arm64/boot/dts -name 'violet-sm6150-overlay.dtbo' -exec cp {} output/ \; || true
-          echo "===== output 内容 ====="
           ls -lh output/
-          echo "===== 所有 violet 相关产物 ====="
           find kernel/out/arch/arm64/boot/dts -name '*violet*' -exec ls -lh {} \;
 
       - name: Upload artifact
