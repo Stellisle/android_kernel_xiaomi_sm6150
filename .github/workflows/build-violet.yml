@@ -1,3 +1,4 @@
+cat > /tmp/build-violet.yml <<'YAML'
 name: Build Violet Kernel (sm6150)
 
 on:
@@ -62,7 +63,7 @@ jobs:
           scripts/kconfig/merge_config.sh -O out out/.config \
             arch/arm64/configs/vendor/violet.config
 
-          # 3. 关键配置
+          # 3. 关键配置：LOCALVERSION 对齐原厂 + APatch/Droidspaces + 修编译错误
           scripts/config --file out/.config \
             --set-str LOCALVERSION "-perf-ge03e5ba22586" \
             --disable LOCALVERSION_AUTO \
@@ -90,7 +91,7 @@ jobs:
           make O=out -j$(nproc) KCFLAGS="-Wno-error" Image.gz
 
           echo "===== 版本字符串确认 ====="
-          strings out/arch/arm64/boot/Image.gz | grep -m1 "Linux version"
+          gunzip -c out/arch/arm64/boot/Image.gz | strings | grep -m1 "Linux version"
 
       - name: Collect artifacts
         run: |
@@ -99,7 +100,7 @@ jobs:
           cp kernel/out/arch/arm64/boot/Image.gz output/
           ls -lh output/
           echo "===== 内核版本 ====="
-          strings output/Image.gz | grep -m1 "Linux version"
+          gunzip -c output/Image.gz | strings | grep -m1 "Linux version"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -107,3 +108,25 @@ jobs:
           name: violet-kernel
           path: output/
           if-no-files-found: error
+YAML
+
+REPO="Stellisle/android_kernel_xiaomi_sm6150"
+BRANCH="lineage-23.2"
+WF_PATH=".github/workflows/build-violet.yml"
+
+SHA=$(gh api "repos/$REPO/contents/$WF_PATH?ref=$BRANCH" --jq .sha 2>/dev/null)
+if [ -n "$SHA" ] && [ "$SHA" != "null" ]; then
+  gh api -X PUT "repos/$REPO/contents/$WF_PATH" \
+    -f message="Align LOCALVERSION with stock kernel (4.14.357-openela-perf-ge03e5ba22586)" \
+    -f content="$(base64 < /tmp/build-violet.yml | tr -d '\n')" \
+    -f sha="$SHA" -f branch="$BRANCH"
+else
+  gh api -X PUT "repos/$REPO/contents/$WF_PATH" \
+    -f message="Add violet kernel build workflow" \
+    -f content="$(base64 < /tmp/build-violet.yml | tr -d '\n')" \
+    -f branch="$BRANCH"
+fi
+
+gh workflow run build-violet.yml --repo "$REPO" --ref "$BRANCH"
+sleep 8
+gh run list --repo "$REPO" --limit 3
